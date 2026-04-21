@@ -7,16 +7,10 @@ const app = express();
 
 // ===========================================
 // RAILWAY PORT - MUST use ONLY process.env.PORT
-// Railway sets this dynamically - no fallback
+// Railway sets this dynamically
 // ===========================================
 const PORT = process.env.PORT;
 const HOST = '0.0.0.0';
-
-// Validate PORT exists
-if (PORT === undefined || PORT === null || PORT === '') {
-  console.error('[FATAL] process.env.PORT is not set!');
-  console.error('[FATAL] Railway requires PORT environment variable');
-}
 
 // Convert PORT to number safely
 const PORT_NUM = parseInt(PORT, 10);
