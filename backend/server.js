@@ -1,42 +1,34 @@
 require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
-const helmet = require('helmet');
-const axios = require('axios');
 
 const app = express();
 
-// RAILWAY ASSIGNMENT: process.env.PORT is set by Railway automatically
-// Do NOT hardcode a port - Railway assigns the public port at runtime
-const PORT = process.env.PORT || 3000;
-const HOST = '0.0.0.0';
+// RAILWAY FIX: ONLY use process.env.PORT - Railway assigns this dynamically
+// Railway will NOT route traffic to hardcoded ports
+const PORT = process.env.PORT;
 
-console.log('[START] Railway Backend Starting');
-console.log('[CONFIG] PORT from Railway:', process.env.PORT || 'NOT SET (using default)');
-console.log('[CONFIG] Using HOST:', HOST);
+if (!PORT) {
+  console.error('[FATAL] process.env.PORT is not set!');
+  console.error('[FATAL] Railway requires process.env.PORT to be used');
+  process.exit(1);
+}
+
+console.log('[START] PORT assigned by Railway:', PORT);
 
 const API_KEY = process.env.CHANGE_NOW_API_KEY;
 const API_URL = 'https://api.changenow.io/v2';
 
 if (!API_KEY) {
-  console.error('[FATAL] CHANGE_NOW_API_KEY missing');
+  console.error('[FATAL] CHANGE_NOW_API_KEY not set');
   process.exit(1);
 }
 
-// Trust Railway's proxy
-app.set('trust proxy', 1);
-
-// Minimal security - API compatibility
-app.use(helmet({
-  contentSecurityPolicy: false,
-  crossOriginEmbedderPolicy: false,
-}));
-
-// CORS - Allow Vercel and localhost
+// CORS - Allow all Vercel preview deployments and localhost
 app.use(cors({
   origin: [
     'http://localhost:3000',
-    'http://localhost:3001',
     'https://changer-cbha.vercel.app',
     /\.vercel\.app$/,
   ],
@@ -45,156 +37,86 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'Origin'],
 }));
 
-// Body parsing
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json());
 
-// Routes - all publicly accessible
+// Simple routes
 
 app.get('/', (req, res) => {
-  res.json({
-    status: 'ok',
-    name: 'Changer API',
-    version: '2.0',
-    timestamp: new Date().toISOString()
-  });
+  res.json({ status: 'ok', time: new Date().toISOString() });
 });
 
 app.get('/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    port: PORT
-  });
+  res.json({ status: 'ok', port: PORT });
 });
 
-// ChangeNOW API helper
-async function cnApi(endpoint, method = 'POST', data = null) {
-  try {
-    const config = {
-      method,
-      url: `${API_URL}${endpoint}`,
-      headers: {
-        'x-changenow-api-key': API_KEY,
-        'Content-Type': 'application/json'
-      },
-      timeout: 30000,
-    };
-    if (data) config.data = data;
-
-    const response = await axios(config);
-    return response.data;
-  } catch (error) {
-    const status = error.response?.status;
-    const msg = error.response?.data?.message || error.message;
-    console.error(`[CN Error] ${status}: ${msg}`);
-    throw { message: msg, status: status || 500 };
-  }
+// ChangeNOW API call helper
+async function cn(method, path, body) {
+  const { default: axios } = require('axios');
+  const r = await axios({
+    method,
+    url: API_URL + path,
+    headers: { 'x-changenow-api-key': API_KEY, 'Content-Type': 'application/json' },
+    data: body,
+    timeout: 20000,
+  });
+  return r.data;
 }
 
 app.get('/api/currencies', async (req, res) => {
   try {
-    const data = await cnApi('/currencies');
-    const filtered = Array.isArray(data) ? data.filter(c => c.ticker) : [];
-    res.json(filtered);
-  } catch (e) {
-    res.status(500).json({ error: 'Failed to fetch currencies' });
-  }
+    const data = await cn('GET', '/currencies');
+    res.json(Array.isArray(data) ? data : []);
+  } catch { res.status(500).json({ error: 'currencies error' }); }
 });
 
 app.get('/api/exchange-rate', async (req, res) => {
   try {
     const { fromCurrency, toCurrency, fromAmount } = req.query;
-    if (!fromCurrency || !toCurrency) {
-      return res.status(400).json({ error: 'fromCurrency and toCurrency required' });
+    if (!fromCurrency || !toCurrency || !fromAmount) {
+      return res.status(400).json({ error: 'missing params' });
     }
-    if (!fromAmount || parseFloat(fromAmount) <= 0) {
-      return res.status(400).json({ error: 'fromAmount must be positive' });
-    }
-
-    const est = await cnApi(
-      `/exchange/estimate?from=${fromCurrency.toLowerCase()}&to=${toCurrency.toLowerCase()}&amount=${fromAmount}`
-    );
-
+    const est = await cn('GET', `/exchange/estimate?from=${fromCurrency}&to=${toCurrency}&amount=${fromAmount}`);
     res.json({
       fromCurrency: fromCurrency.toUpperCase(),
       toCurrency: toCurrency.toUpperCase(),
       fromAmount: parseFloat(fromAmount),
-      toAmount: est.toAmount || est.amount,
+      toAmount: est.toAmount,
       rate: est.rate,
-      transactionSpeed: est.transactionSpeed,
     });
-  } catch (e) {
-    res.status(500).json({ error: 'Failed to fetch exchange rate' });
-  }
+  } catch { res.status(500).json({ error: 'rate error' }); }
 });
 
 app.post('/api/create-transaction', async (req, res) => {
   try {
-    const { fromCurrency, toCurrency, fromAmount, address, refundAddress } = req.body;
+    const { fromCurrency, toCurrency, fromAmount, address } = req.body;
     if (!fromCurrency || !toCurrency || !fromAmount || !address) {
-      return res.status(400).json({ error: 'Missing required fields' });
+      return res.status(400).json({ error: 'missing fields' });
     }
-
-    const payload = {
+    const tx = await cn('POST', '/exchange', {
       from: fromCurrency.toLowerCase(),
       to: toCurrency.toLowerCase(),
       address,
       amount: parseFloat(fromAmount),
-    };
-    if (refundAddress) payload.refundAddress = refundAddress;
-
-    const tx = await cnApi('/exchange', 'POST', payload);
-
-    res.json({
-      id: tx.id,
-      fromCurrency: tx.fromCurrency?.toUpperCase() || fromCurrency.toUpperCase(),
-      toCurrency: tx.toCurrency?.toUpperCase() || toCurrency.toUpperCase(),
-      fromAmount: tx.fromAmount || parseFloat(fromAmount),
-      toAmount: tx.toAmount || tx.expectedReceiveAmount,
-      payinAddress: tx.payinAddress,
-      status: tx.status,
     });
-  } catch (e) {
-    res.status(500).json({ error: 'Failed to create transaction' });
-  }
+    res.json({ id: tx.id, status: tx.status, fromCurrency: tx.fromCurrency, toCurrency: tx.toCurrency });
+  } catch { res.status(500).json({ error: 'transaction error' }); }
 });
 
 app.get('/api/transaction/:id', async (req, res) => {
   try {
-    const tx = await cnApi(`/exchange/${req.params.id}`);
-    res.json({
-      id: tx.id,
-      status: tx.status,
-      fromCurrency: tx.fromCurrency?.toUpperCase(),
-      toCurrency: tx.toCurrency?.toUpperCase(),
-      fromAmount: tx.fromAmount,
-      toAmount: tx.toAmount || tx.expectedReceiveAmount,
-      payinAddress: tx.payinAddress,
-    });
-  } catch (e) {
-    res.status(500).json({ error: 'Failed to fetch transaction' });
-  }
+    const tx = await cn('GET', `/exchange/${req.params.id}`);
+    res.json({ id: tx.id, status: tx.status, fromCurrency: tx.fromCurrency, toCurrency: tx.toCurrency });
+  } catch { res.status(500).json({ error: 'transaction error' }); }
 });
 
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({ error: 'Not found' });
-});
+app.use((req, res) => res.status(404).json({ error: 'not found' }));
+app.use((err, req, res, next) => res.status(500).json({ error: 'error' }));
 
-// Error handler
-app.use((err, req, res, next) => {
-  res.status(500).json({ error: 'Internal server error' });
-});
-
-// START SERVER - Railway requires binding to 0.0.0.0
-console.log('[START] Binding to', HOST + ':' + PORT);
-
-app.listen(PORT, HOST, () => {
-  console.log('===========================================');
-  console.log('[READY] Server is live at http://' + HOST + ':' + PORT);
-  console.log('[READY] Public URL: Check Railway dashboard');
-  console.log('[READY] Test: /health endpoint');
-  console.log('===========================================');
+// RAILWAY FIX: Bind to 0.0.0.0 with ONLY Railway's PORT
+// NO fallback port - Railway controls the port
+app.listen(PORT, '0.0.0.0', () => {
+  console.log('[READY] Server at http://0.0.0.0:' + PORT);
+  console.log('[READY] Test: /health');
 });
 
 module.exports = app;
