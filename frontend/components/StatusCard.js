@@ -1,16 +1,16 @@
 'use client';
 import { useExchange } from '@/context/ExchangeContext';
 import { useLanguage } from '@/context/LanguageContext';
-import { Loader2, RefreshCw, ExternalLink, Clock, Hash, Wallet, ArrowUpRight, AlertCircle } from 'lucide-react';
+import { Loader2, RefreshCw, ExternalLink, Clock, Hash, Wallet, ArrowUpRight, AlertCircle, CheckCircle, XCircle, RotateCcw } from 'lucide-react';
 
 const STATUS_STYLES = {
-  'waiting': 'text-yellow-500 bg-yellow-500/10 border-yellow-500/20',
-  'verifying': 'text-blue-500 bg-blue-500/10 border-blue-500/20',
-  'confirming': 'text-blue-500 bg-blue-500/10 border-blue-500/20',
-  'sending': 'text-accent-500 bg-accent-500/10 border-accent-500/20',
-  'completed': 'text-success-500 bg-success-500/10 border-success-500/20',
-  'failed': 'text-error-500 bg-error-500/10 border-error-500/20',
-  'refunded': 'text-gray-400 bg-gray-400/10 border-gray-400/20',
+  'waiting': 'text-[#f59e0b] bg-[#f59e0b]/10 border border-[#f59e0b]/20',
+  'verifying': 'text-[#0ea5e9] bg-[#0ea5e9]/10 border border-[#0ea5e9]/20',
+  'confirming': 'text-[#0ea5e9] bg-[#0ea5e9]/10 border border-[#0ea5e9]/20',
+  'sending': 'text-[#8b5cf6] bg-[#8b5cf6]/10 border border-[#8b5cf6]/20',
+  'completed': 'text-[#22c55e] bg-[#22c55e]/10 border border-[#22c55e]/20',
+  'failed': 'text-[#ef4444] bg-[#ef4444]/10 border border-[#ef4444]/20',
+  'refunded': 'text-[#94a3b8] bg-[#94a3b8]/10 border border-[#94a3b8]/20',
 };
 
 const STATUS_ICONS = {
@@ -18,9 +18,9 @@ const STATUS_ICONS = {
   'verifying': Hash,
   'confirming': Hash,
   'sending': ArrowUpRight,
-  'completed': Wallet,
-  'failed': AlertCircle,
-  'refunded': RefreshCw,
+  'completed': CheckCircle,
+  'failed': XCircle,
+  'refunded': RotateCcw,
 };
 
 export default function StatusCard({ transaction }) {
@@ -41,39 +41,39 @@ export default function StatusCard({ transaction }) {
 
   const explorerUrl = transaction.id && `https://changenow.io/exchange/tx/${transaction.id}`;
 
-  const DetailRow = ({ label, value, mono = false, copyable = false }) => (
-    <div className="flex items-center justify-between py-3 px-4 rounded-xl bg-surface-200/50 border border-white/5">
-      <span className="text-sm text-gray-400">{label}</span>
-      <span className={`text-sm font-medium ${mono ? 'font-mono text-xs text-primary-400' : ''}`}>
+  const DetailRow = ({ label, value, mono = false }) => (
+    <div className="flex items-center justify-between py-3.5 px-4 rounded-xl bg-[#0f1419] border border-[#2a3544]">
+      <span className="text-sm text-[#64748b]">{label}</span>
+      <span className={`text-sm font-semibold ${mono ? 'font-mono text-xs text-[#0ea5e9] break-all' : 'text-white'}`}>
         {value}
       </span>
     </div>
   );
 
   return (
-    <div className="card p-5 lg:p-6 animate-scale-in">
+    <div className="bg-[#1c2530] border border-[#2a3544] rounded-3xl p-6 lg:p-8 shadow-card animate-scale-in">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-surface-200 flex items-center justify-center">
-            <StatusIcon className="w-5 h-5 text-gray-400" />
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-[#0f1419] border border-[#2a3544] flex items-center justify-center">
+            <StatusIcon className="w-5 h-5 text-[#64748b]" />
           </div>
           <div>
-            <h3 className="text-lg font-semibold">{t.transactionDetails}</h3>
-            <p className="text-xs text-gray-500">ID: {transaction.id?.slice(0, 8)}...</p>
+            <h3 className="text-lg font-bold text-white">{t.transactionDetails}</h3>
+            <p className="text-xs text-[#64748b] font-mono">ID: {transaction.id?.slice(0, 12)}...</p>
           </div>
         </div>
         <button
           onClick={handleRefresh}
           disabled={loading}
-          className="p-2.5 rounded-xl bg-surface-200 hover:bg-surface-100 border border-white/10 transition-all disabled:opacity-50"
+          className="p-3 rounded-xl bg-[#0f1419] hover:bg-[#232f3e] border border-[#2a3544] transition-all disabled:opacity-50"
         >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`w-4 h-4 text-[#64748b] ${loading ? 'animate-spin' : ''}`} />
         </button>
       </div>
 
       {/* Status Badge */}
-      <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border ${statusClass} mb-6`}>
+      <div className={`inline-flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-sm font-semibold ${statusClass} mb-6`}>
         <StatusIcon className="w-4 h-4" />
         <span>{statusText}</span>
       </div>
@@ -113,9 +113,9 @@ export default function StatusCard({ transaction }) {
         )}
 
         {transaction.address && (
-          <div className="p-4 rounded-xl bg-surface-200/50 border border-white/5">
-            <span className="text-sm text-gray-400 block mb-2">{t.depositAddress}</span>
-            <code className="text-sm break-all text-primary-400 font-mono">{transaction.address}</code>
+          <div className="p-4 rounded-xl bg-[#0f1419] border border-[#2a3544]">
+            <span className="text-sm text-[#64748b] block mb-2">{t.depositAddress}</span>
+            <code className="text-sm break-all text-[#0ea5e9] font-mono">{transaction.address}</code>
           </div>
         )}
       </div>
@@ -126,7 +126,7 @@ export default function StatusCard({ transaction }) {
           href={explorerUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="btn-primary w-full mt-6 flex items-center justify-center gap-2"
+          className="w-full mt-6 flex items-center justify-center gap-2 bg-[#0ea5e9] hover:bg-[#0284c7] text-white font-bold rounded-2xl px-6 py-4 transition-all duration-200 hover:shadow-glow"
         >
           <span>{t.trackTransaction}</span>
           <ExternalLink className="w-4 h-4" />

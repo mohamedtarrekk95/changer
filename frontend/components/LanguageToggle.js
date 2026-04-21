@@ -37,29 +37,31 @@ export default function LanguageToggle() {
     <div className="relative" ref={dropdownRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-3 py-2 rounded-xl bg-dark-100 border border-white/10 hover:border-white/20 transition-all text-sm font-medium"
+        className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[#1c2530] border border-[#2a3544] hover:border-[#344050] transition-all text-sm font-medium text-[#94a3b8] hover:text-white"
         aria-label="Toggle language"
       >
-        <Globe className="w-4 h-4 text-gray-400" />
+        <Globe className="w-4 h-4" />
         <span>{currentLang.flag}</span>
-        <ChevronDown className="w-3 h-3 text-gray-400" />
+        <ChevronDown className={`w-3 h-3 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-40 rounded-xl bg-dark-100 border border-white/10 shadow-xl z-50 overflow-hidden">
+        <div className="absolute right-0 mt-2 w-44 rounded-xl bg-[#151b23] border border-[#2a3544] shadow-xl z-50 overflow-hidden animate-scale-in">
           {languages.map((lang) => (
             <button
               key={lang.code}
               onClick={() => handleSelect(lang.code)}
-              className={
-                lang.code === language
-                  ? 'w-full px-4 py-2.5 text-left flex items-center justify-between bg-primary-500/10 text-primary-500'
-                  : 'w-full px-4 py-2.5 text-left flex items-center justify-between text-gray-300 hover:bg-dark-200 transition-colors'
-              }
+              className={`
+                w-full px-4 py-3 text-left flex items-center justify-between transition-colors
+                ${lang.code === language
+                  ? 'bg-[#0ea5e9]/10 text-[#0ea5e9]'
+                  : 'text-[#94a3b8] hover:bg-[#1c2530] hover:text-white'
+                }
+              `}
             >
               <span className="text-sm font-medium">{lang.flag} {lang.label}</span>
               {lang.code === language && (
-                <span className="w-1.5 h-1.5 rounded-full bg-primary-500" />
+                <span className="w-1.5 h-1.5 rounded-full bg-[#0ea5e9]" />
               )}
             </button>
           ))}

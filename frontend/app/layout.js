@@ -14,18 +14,18 @@ export default function RootLayout({ children }) {
       <body>
         <LanguageProvider>
           <ExchangeProvider>
-            <div className="min-h-screen bg-dark-300">
+            <div className="min-h-screen bg-[#0a0e14]">
               <Header />
               <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
                 {children}
               </main>
-              <footer className="border-t border-white/5 py-8 mt-auto">
+              <footer className="border-t border-[#2a3544]/50 py-8 mt-auto">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                   <div className="flex flex-col md:flex-row items-center justify-between gap-4 text-center md:text-left">
-                    <p className="text-gray-500 text-sm">
+                    <p className="text-[#64748b] text-sm">
                       © 2026 Changer. All rights reserved.
                     </p>
-                    <div className="flex items-center gap-6 text-sm text-gray-500">
+                    <div className="flex items-center gap-6 text-sm text-[#64748b]">
                       <a href="#" className="hover:text-white transition-colors">Privacy</a>
                       <a href="#" className="hover:text-white transition-colors">Terms</a>
                       <a href="#" className="hover:text-white transition-colors">Support</a>
