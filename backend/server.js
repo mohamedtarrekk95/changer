@@ -12,7 +12,14 @@ const API_URL = 'https://api.changenow.io/v1';
 process.on('uncaughtException', e => console.error('[UNCATCHED]', e.message));
 process.on('unhandledRejection', e => console.error('[UNHANDLED]', String(e)));
 
-console.log('[START] PORT:', PORT, 'HOST:', HOST, 'API_KEY_SET:', API_KEY ? 'YES' : 'NO');
+console.log('===========================================');
+console.log('[CONFIG] ChangeNOW Backend v3.0');
+console.log('[CONFIG] Time:', new Date().toISOString());
+console.log('[CONFIG] PORT:', PORT);
+console.log('[CONFIG] HOST:', HOST);
+console.log('[CONFIG] API_KEY_SET:', API_KEY ? 'YES' : 'NO');
+console.log('[CONFIG] NODE_ENV:', process.env.NODE_ENV);
+console.log('===========================================');
 
 // CORS
 app.use((req, res, next) => {
@@ -59,8 +66,9 @@ app.post('/api/create-transaction', async (req, res) => {
 
 app.use((req, res) => res.status(404).json({ error: 'not found' }));
 
+console.log('[START] Calling app.listen...');
 const server = app.listen(PORT, HOST, () => {
-  console.log('[READY] http://' + HOST + ':' + PORT);
+  console.log('[READY] Server listening at http://' + HOST + ':' + PORT);
 });
 
 server.on('error', e => console.error('[SERVER_ERROR]', e.message));
