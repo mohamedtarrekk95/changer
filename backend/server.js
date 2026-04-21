@@ -12,9 +12,12 @@ const app = express();
 const PORT = process.env.PORT;
 const HOST = '0.0.0.0';
 
-// Convert PORT to number safely
+// Railway will provide PORT - validate it
 const PORT_NUM = parseInt(PORT, 10);
 const IS_PORT_VALID = !isNaN(PORT_NUM) && PORT_NUM > 0 && PORT_NUM < 65536;
+
+// Force PORT to be a valid number or default to 3000 for local dev
+const LISTEN_PORT = IS_PORT_VALID ? PORT_NUM : 3000;
 
 // ===========================================
 // CHANGE NOW API CONFIG
@@ -310,24 +313,16 @@ app.use((err, req, res, next) => {
 // ===========================================
 // START SERVER
 // ===========================================
-console.log('[START] Starting server...');
+console.log('[START] Starting server on port', LISTEN_PORT, '...');
 
-// Validate PORT before starting
-if (!IS_PORT_VALID) {
-  console.error('[START] FATAL: Invalid PORT:', PORT);
-  // Don't start - will fail on Railway if PORT is invalid
-  // But don't crash the process either - let it show the error
-}
-
-// Use the port Railway gave us - only start if valid
-const server = app.listen(IS_PORT_VALID ? PORT_NUM : 3000, HOST, (err) => {
+const server = app.listen(LISTEN_PORT, HOST, (err) => {
   if (err) {
     console.error('[START] FATAL: Server failed to start:', err.message);
-    return; // Don't exit - keep process alive to show error
+    return;
   }
   console.log('===========================================');
-  console.log('[READY] Server running at http://' + HOST + ':' + (IS_PORT_VALID ? PORT_NUM : 3000));
-  console.log('[READY] Health: http://' + HOST + ':' + (IS_PORT_VALID ? PORT_NUM : 3000) + '/health');
+  console.log('[READY] Server running at http://' + HOST + ':' + LISTEN_PORT);
+  console.log('[READY] Health: http://' + HOST + ':' + LISTEN_PORT + '/health');
   console.log('[READY] API_KEY_SET:', API_KEY ? 'YES' : 'NO');
   console.log('===========================================');
 });
