@@ -12,23 +12,41 @@ const API_URL = 'https://api.changenow.io/v2';
 app.use(helmet());
 
 // CORS configuration - must be before all routes
+// Supports: localhost, production Vercel, and all Vercel preview deployments
 const corsOptions = {
   origin: function (origin, callback) {
-    const allowedOrigins = [
-      'http://localhost:3000',
-      'https://changer-cbha.vercel.app',
-    ];
+    // Allow requests with no origin (curl, Postman, mobile apps)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      console.log(`CORS blocked origin: ${origin}`);
-      callback(new Error('Not allowed by CORS'));
+
+    // Environment-configured origin (for specific deployments)
+    const envOrigin = process.env.FRONTEND_URL;
+    if (envOrigin && origin === envOrigin) {
+      return callback(null, true);
     }
+
+    // Local development
+    if (origin === 'http://localhost:3000' || origin === 'http://localhost:3001') {
+      return callback(null, true);
+    }
+
+    // All Vercel deployments (*.vercel.app)
+    if (origin.endsWith('.vercel.app') && origin.includes('vercel')) {
+      console.log(`[CORS] Allowing Vercel origin: ${origin}`);
+      return callback(null, true);
+    }
+
+    // Production Vercel URL (without subdomain)
+    if (origin === 'https://vercel.app' || origin === 'https://changenow.io') {
+      return callback(null, true);
+    }
+
+    console.log(`[CORS] Blocked origin: ${origin}`);
+    callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  exposedHeaders: ['Content-Type', 'Authorization'],
 };
 app.use(cors(corsOptions));
 app.use(express.json());
