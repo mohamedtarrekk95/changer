@@ -95,6 +95,7 @@ const LanguageContext = createContext();
 export function LanguageProvider({ children }) {
   const [language, setLanguage] = useState('en');
   const [t, setT] = useState(translations.en);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem('language');
@@ -102,6 +103,7 @@ export function LanguageProvider({ children }) {
       setLanguage(saved);
       setT(translations[saved]);
     }
+    setMounted(true);
   }, []);
 
   const toggleLanguage = useCallback(() => {
@@ -109,8 +111,18 @@ export function LanguageProvider({ children }) {
     setLanguage(newLang);
     setT(translations[newLang]);
     localStorage.setItem('language', newLang);
-    document.documentElement.dir = newLang === 'ar' ? 'rtl' : 'ltr';
+    if (typeof document !== 'undefined') {
+      document.documentElement.dir = newLang === 'ar' ? 'rtl' : 'ltr';
+    }
   }, [language]);
+
+  if (!mounted) {
+    return (
+      <LanguageContext.Provider value={{ language: 'en', t: translations.en, toggleLanguage }}>
+        {children}
+      </LanguageContext.Provider>
+    );
+  }
 
   return (
     <LanguageContext.Provider value={{ language, t, toggleLanguage }}>
@@ -121,6 +133,6 @@ export function LanguageProvider({ children }) {
 
 export function useLanguage() {
   const context = useContext(LanguageContext);
-  if (!context) throw new Error('useLanguage must be used within LanguageProvider');
+  if (!context) throw new Error('useLanguage must be used within ExchangeProvider');
   return context;
 }

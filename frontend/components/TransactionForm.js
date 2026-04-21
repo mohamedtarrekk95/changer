@@ -3,12 +3,12 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useExchange } from '@/context/ExchangeContext';
 import { useLanguage } from '@/context/LanguageContext';
-import { Loader2, AlertCircle } from 'lucide-react';
+import { Loader2, AlertCircle, ArrowRight } from 'lucide-react';
 
 export default function TransactionForm() {
   const router = useRouter();
   const { t } = useLanguage();
-  const { createExchange, loading, error, clearError, fromCurrency, toCurrency } = useExchange();
+  const { createExchange, loading, error, clearError } = useExchange();
   const [formData, setFormData] = useState({
     fromCurrency: '',
     toCurrency: '',
@@ -37,93 +37,108 @@ export default function TransactionForm() {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {error && (
-        <div className="p-3 bg-red-500/20 border border-red-500/50 rounded-lg flex items-center gap-2">
-          <AlertCircle className="w-5 h-5 text-red-400" />
-          <span className="text-red-400 text-sm">{error}</span>
+    <form onSubmit={handleSubmit} className="space-y-5">
+      {/* Error alerts */}
+      {(error || txError) && (
+        <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-3 animate-scale-in">
+          <AlertCircle className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-red-500">{error || txError}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => { setTxError(null); clearError(); }}
+            className="text-[var(--text-muted)] hover:text-white transition-colors"
+          >
+            ×
+          </button>
         </div>
       )}
 
-      {txError && (
-        <div className="p-3 bg-red-500/20 border border-red-500/50 rounded-lg flex items-center gap-2">
-          <AlertCircle className="w-5 h-5 text-red-400" />
-          <span className="text-red-400 text-sm">{txError}</span>
+      {/* Currency Row */}
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="label">{t.from}</label>
+          <input
+            type="text"
+            value={formData.fromCurrency}
+            onChange={(e) => setFormData({ ...formData, fromCurrency: e.target.value.toUpperCase() })}
+            placeholder="BTC"
+            className="input-base uppercase font-medium"
+            required
+          />
         </div>
-      )}
 
-      <div>
-        <label className="block text-sm text-gray-400 mb-2">From Currency</label>
-        <input
-          type="text"
-          value={formData.fromCurrency}
-          onChange={(e) => setFormData({ ...formData, fromCurrency: e.target.value.toUpperCase() })}
-          placeholder="BTC"
-          className="w-full p-3 bg-dark-200 border border-gray-700 rounded-lg focus:outline-none focus:border-primary-500"
-          required
-        />
+        <div>
+          <label className="label">{t.to}</label>
+          <input
+            type="text"
+            value={formData.toCurrency}
+            onChange={(e) => setFormData({ ...formData, toCurrency: e.target.value.toUpperCase() })}
+            placeholder="ETH"
+            className="input-base uppercase font-medium"
+            required
+          />
+        </div>
       </div>
 
+      {/* Amount */}
       <div>
-        <label className="block text-sm text-gray-400 mb-2">To Currency</label>
-        <input
-          type="text"
-          value={formData.toCurrency}
-          onChange={(e) => setFormData({ ...formData, toCurrency: e.target.value.toUpperCase() })}
-          placeholder="ETH"
-          className="w-full p-3 bg-dark-200 border border-gray-700 rounded-lg focus:outline-none focus:border-primary-500"
-          required
-        />
-      </div>
-
-      <div>
-        <label className="block text-sm text-gray-400 mb-2">Amount</label>
+        <label className="label">{t.amount}</label>
         <input
           type="number"
           value={formData.fromAmount}
           onChange={(e) => setFormData({ ...formData, fromAmount: e.target.value })}
           placeholder="0.00"
-          className="w-full p-3 bg-dark-200 border border-gray-700 rounded-lg focus:outline-none focus:border-primary-500"
+          className="input-base font-semibold text-lg"
           required
           step="any"
         />
       </div>
 
+      {/* Deposit Address */}
       <div>
-        <label className="block text-sm text-gray-400 mb-2">Deposit Address (Your {formData.toCurrency || 'target'}-wallet address)</label>
+        <label className="label">
+          {t.depositAddress.replace('(Your ', `(Your ${formData.toCurrency || 'target'}-`)}
+        </label>
         <input
           type="text"
           value={formData.address}
           onChange={(e) => setFormData({ ...formData, address: e.target.value })}
           placeholder="0x..."
-          className="w-full p-3 bg-dark-200 border border-gray-700 rounded-lg focus:outline-none focus:border-primary-500"
+          className="input-base font-mono text-sm"
           required
         />
       </div>
 
+      {/* Refund Address */}
       <div>
-        <label className="block text-sm text-gray-400 mb-2">Refund Address (Optional)</label>
+        <label className="label">{t.refundAddress}</label>
         <input
           type="text"
           value={formData.refundAddress}
           onChange={(e) => setFormData({ ...formData, refundAddress: e.target.value })}
           placeholder="0x..."
-          className="w-full p-3 bg-dark-200 border border-gray-700 rounded-lg focus:outline-none focus:border-primary-500"
+          className="input-base font-mono text-sm"
         />
       </div>
 
+      {/* Submit Button */}
       <button
         type="submit"
         disabled={loading}
-        className="w-full p-4 bg-primary-500 hover:bg-primary-600 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg font-semibold transition-colors flex justify-center items-center gap-2"
+        className="btn-primary w-full flex items-center justify-center gap-2 text-base mt-2"
       >
         {loading ? (
           <>
             <Loader2 className="w-5 h-5 animate-spin" />
-            {t.processing}
+            <span>{t.processing}</span>
           </>
         ) : (
-          t.swapNow
+          <>
+            <span>{t.swapNow}</span>
+            <ArrowRight className="w-5 h-5" />
+          </>
         )}
       </button>
     </form>

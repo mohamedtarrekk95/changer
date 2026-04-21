@@ -16,12 +16,21 @@ export default function RootLayout({ children }) {
           <ExchangeProvider>
             <div className="min-h-screen bg-dark-300">
               <Header />
-              <main className="container mx-auto px-4 py-8">
+              <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
                 {children}
               </main>
-              <footer className="border-t border-gray-800 py-6 mt-8">
-                <div className="container mx-auto px-4 text-center text-gray-500 text-sm">
-                  © 2026 Changer. All rights reserved.
+              <footer className="border-t border-white/5 py-8 mt-auto">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                  <div className="flex flex-col md:flex-row items-center justify-between gap-4 text-center md:text-left">
+                    <p className="text-gray-500 text-sm">
+                      © 2026 Changer. All rights reserved.
+                    </p>
+                    <div className="flex items-center gap-6 text-sm text-gray-500">
+                      <a href="#" className="hover:text-white transition-colors">Privacy</a>
+                      <a href="#" className="hover:text-white transition-colors">Terms</a>
+                      <a href="#" className="hover:text-white transition-colors">Support</a>
+                    </div>
+                  </div>
                 </div>
               </footer>
             </div>
