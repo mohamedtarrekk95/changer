@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(curl *)",
+      "WebFetch(domain:documenter.getpostman.com)",
+      "Bash(taskkill //F //PID 8544)",
+      "Bash(node server.js)",
+      "Bash(npm run *)",
+      "WebSearch",
+      "WebFetch(domain:github.com)"
+    ]
+  }
+}
