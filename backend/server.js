@@ -152,7 +152,13 @@ app.get('/health', (req, res) => {
     status: 'ok',
     timestamp: new Date().toISOString(),
     port: PORT,
+    portValid: IS_PORT_VALID,
+    portNum: PORT_NUM,
     uptime: Math.floor(process.uptime()),
+    memoryUsage: process.memoryUsage ? {
+      heapUsed: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + 'MB',
+      heapTotal: Math.round(process.memoryUsage().heapTotal / 1024 / 1024) + 'MB',
+    } : 'unavailable',
   });
 });
 
