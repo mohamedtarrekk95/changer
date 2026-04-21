@@ -18,7 +18,6 @@ const corsOptions = {
       'http://localhost:3000',
       'https://changer-cbha.vercel.app',
     ];
-    // Allow requests with no origin (mobile apps, curl, etc.)
     if (!origin) return callback(null, true);
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
@@ -43,7 +42,7 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// ChangeNOW API helper - makes authenticated requests to ChangeNOW
+// ChangeNOW API request helper with proper auth
 async function changeNowRequest(endpoint, method = 'GET', data = null) {
   try {
     const config = {
@@ -52,18 +51,27 @@ async function changeNowRequest(endpoint, method = 'GET', data = null) {
       headers: {
         'x-api-key': API_KEY,
         'Content-Type': 'application/json'
-      }
+      },
+      timeout: 30000,
     };
     if (data) config.data = data;
 
+    console.log(`[ChangeNOW Request] ${method} ${config.url}`);
+    if (data) console.log(`[ChangeNOW Request] Body:`, JSON.stringify(data, null, 2));
+
     const response = await axios(config);
+    console.log(`[ChangeNOW Response] Status: ${response.status}`);
+    console.log(`[ChangeNOW Response] Data:`, JSON.stringify(response.data, null, 2).substring(0, 500));
+
     return response.data;
   } catch (error) {
-    console.error('ChangeNOW API Error:', error.response?.data || error.message);
-    const errData = error.response?.data;
+    const status = error.response?.status;
+    const data = error.response?.data;
+    console.error(`[ChangeNOW Error] Status: ${status}`);
+    console.error(`[ChangeNOW Error] Data:`, JSON.stringify(data, null, 2));
     throw {
-      message: errData?.message || errData?.error || error.message,
-      status: error.response?.status || 500
+      message: data?.message || data?.error || error.message,
+      status: status || 500
     };
   }
 }
@@ -71,8 +79,12 @@ async function changeNowRequest(endpoint, method = 'GET', data = null) {
 // GET /api/currencies - Get all available currencies
 app.get('/api/currencies', async (req, res) => {
   try {
-    const currencies = await changeNowRequest('/currencies?active=true');
-    res.json(currencies);
+    const currencies = await changeNowRequest('/currencies');
+    // Filter to only active currencies if needed
+    const activeCurrencies = Array.isArray(currencies)
+      ? currencies.filter(c => c.ticker && c.name)
+      : [];
+    res.json(activeCurrencies);
   } catch (error) {
     res.status(error.status || 500).json({ error: error.message });
   }
@@ -91,16 +103,20 @@ app.get('/api/exchange-rate', async (req, res) => {
       return res.status(400).json({ error: 'fromAmount must be a positive number' });
     }
 
-    const pair = `${fromCurrency.toLowerCase()}_${toCurrency.toLowerCase()}`;
-    const estimate = await changeNowRequest(`/exchange-amount/${fromAmount}/${pair}`);
+    // Correct endpoint: /v1/exchange/estimate?from=X&to=Y&amount=Z
+    const estimate = await changeNowRequest(
+      `/exchange/estimate?from=${fromCurrency.toLowerCase()}&to=${toCurrency.toLowerCase()}&amount=${fromAmount}`
+    );
 
     res.json({
       fromCurrency: fromCurrency.toUpperCase(),
       toCurrency: toCurrency.toUpperCase(),
       fromAmount: parseFloat(fromAmount),
-      toAmount: estimate.estimatedAmount,
-      rate: estimate.estimatedAmount / parseFloat(fromAmount),
-      transactionSpeed: estimate.transactionSpeedForecast,
+      toAmount: estimate.toAmount || estimate.amount || estimate.estimatedAmount,
+      rate: estimate.rate || (estimate.toAmount ? parseFloat(estimate.toAmount) / parseFloat(fromAmount) : null),
+      transactionSpeed: estimate.transactionSpeed || estimate.speed,
+      minAmount: estimate.minAmount,
+      maxAmount: estimate.maxAmount,
     });
   } catch (error) {
     res.status(error.status || 500).json({ error: error.message });
@@ -112,7 +128,6 @@ app.post('/api/create-transaction', async (req, res) => {
   try {
     const { fromCurrency, toCurrency, fromAmount, address, toAddress, refundAddress } = req.body;
 
-    // Support both 'address' and 'toAddress' from frontend
     const payoutAddress = toAddress || address;
 
     if (!fromCurrency || !toCurrency || !fromAmount || !payoutAddress) {
@@ -121,6 +136,7 @@ app.post('/api/create-transaction', async (req, res) => {
       });
     }
 
+    // Correct endpoint: POST /v1/exchange (NOT /transactions/{apiKey})
     const payload = {
       from: fromCurrency.toLowerCase(),
       to: toCurrency.toLowerCase(),
@@ -130,22 +146,18 @@ app.post('/api/create-transaction', async (req, res) => {
 
     if (refundAddress) payload.refundAddress = refundAddress;
 
-    const transaction = await changeNowRequest(
-      `/transactions/${API_KEY}`,
-      'POST',
-      payload
-    );
+    const transaction = await changeNowRequest('/exchange', 'POST', payload);
 
     res.json({
       id: transaction.id,
       fromCurrency: transaction.fromCurrency?.toUpperCase() || fromCurrency.toUpperCase(),
       toCurrency: transaction.toCurrency?.toUpperCase() || toCurrency.toUpperCase(),
-      fromAmount: transaction.amount || parseFloat(fromAmount),
-      toAmount: transaction.expectedReceiveAmount || transaction.directedAmount,
-      payinAddress: transaction.payinAddress,
-      payoutAddress: transaction.payoutAddress,
+      fromAmount: transaction.fromAmount || transaction.amount || parseFloat(fromAmount),
+      toAmount: transaction.toAmount || transaction.expectedReceiveAmount || transaction.amount,
+      payinAddress: transaction.payinAddress || transaction.depositAddress,
+      payoutAddress: transaction.payoutAddress || payoutAddress,
       status: transaction.status,
-      createdAt: transaction.createdAt,
+      createdAt: transaction.createdAt || transaction.timestamp,
     });
   } catch (error) {
     res.status(error.status || 500).json({ error: error.message });
@@ -157,19 +169,22 @@ app.get('/api/transaction/:id', async (req, res) => {
   try {
     const { id } = req.params;
 
-    const transaction = await changeNowRequest(`/transactions/${id}/${API_KEY}`);
+    // Correct endpoint: GET /v1/transaction/{id} (NOT /transactions/{id}/{apiKey})
+    const transaction = await changeNowRequest(`/transaction/${id}`);
 
     res.json({
       id: transaction.id,
       status: transaction.status,
       fromCurrency: transaction.fromCurrency?.toUpperCase(),
       toCurrency: transaction.toCurrency?.toUpperCase(),
-      fromAmount: transaction.expectedSendAmount || transaction.amount,
-      toAmount: transaction.expectedReceiveAmount,
-      payinAddress: transaction.payinAddress,
+      fromAmount: transaction.fromAmount || transaction.expectedSendAmount || transaction.amount,
+      toAmount: transaction.toAmount || transaction.expectedReceiveAmount,
+      payinAddress: transaction.payinAddress || transaction.depositAddress,
       payoutAddress: transaction.payoutAddress,
-      updatedAt: transaction.updatedAt,
+      updatedAt: transaction.updatedAt || transaction.timestamp,
       createdAt: transaction.createdAt,
+      payinHash: transaction.payinHash || transaction.depositHash,
+      payoutHash: transaction.payoutHash || transaction.payoutHash,
     });
   } catch (error) {
     res.status(error.status || 500).json({ error: error.message });

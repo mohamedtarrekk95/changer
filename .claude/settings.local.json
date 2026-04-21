@@ -8,7 +8,11 @@
       "Bash(node server.js)",
       "Bash(npm run *)",
       "WebSearch",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:api.changenow.io)",
+      "WebFetch(domain:www.changenow.live)",
+      "WebFetch(domain:changenow.io)",
+      "Bash(node -c server.js)"
     ]
   }
 }
