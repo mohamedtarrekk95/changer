@@ -7,7 +7,7 @@ const axios = require('axios');
 const app = express();
 const PORT = process.env.PORT || 3002;
 const API_KEY = process.env.CHANGE_NOW_API_KEY;
-const API_URL = 'https://api.changenow.io/v1';
+const API_URL = 'https://api.changenow.io/v2';
 
 app.use(helmet());
 
@@ -42,33 +42,33 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// ChangeNOW API request helper with proper auth
+// ChangeNOW API v2 request helper
 async function changeNowRequest(endpoint, method = 'GET', data = null) {
   try {
     const config = {
       method,
       url: `${API_URL}${endpoint}`,
       headers: {
-        'x-api-key': API_KEY,
+        'x-changenow-api-key': API_KEY,
         'Content-Type': 'application/json'
       },
       timeout: 30000,
     };
     if (data) config.data = data;
 
-    console.log(`[ChangeNOW Request] ${method} ${config.url}`);
-    if (data) console.log(`[ChangeNOW Request] Body:`, JSON.stringify(data, null, 2));
+    console.log(`[ChangeNOW v2 Request] ${method} ${config.url}`);
+    if (data) console.log(`[ChangeNOW v2 Request] Body:`, JSON.stringify(data, null, 2));
 
     const response = await axios(config);
-    console.log(`[ChangeNOW Response] Status: ${response.status}`);
-    console.log(`[ChangeNOW Response] Data:`, JSON.stringify(response.data, null, 2).substring(0, 500));
+    console.log(`[ChangeNOW v2 Response] Status: ${response.status}`);
+    console.log(`[ChangeNOW v2 Response] Data:`, JSON.stringify(response.data, null, 2).substring(0, 500));
 
     return response.data;
   } catch (error) {
     const status = error.response?.status;
     const data = error.response?.data;
-    console.error(`[ChangeNOW Error] Status: ${status}`);
-    console.error(`[ChangeNOW Error] Data:`, JSON.stringify(data, null, 2));
+    console.error(`[ChangeNOW v2 Error] Status: ${status}`);
+    console.error(`[ChangeNOW v2 Error] Data:`, JSON.stringify(data, null, 2));
     throw {
       message: data?.message || data?.error || error.message,
       status: status || 500
@@ -80,7 +80,6 @@ async function changeNowRequest(endpoint, method = 'GET', data = null) {
 app.get('/api/currencies', async (req, res) => {
   try {
     const currencies = await changeNowRequest('/currencies');
-    // Filter to only active currencies if needed
     const activeCurrencies = Array.isArray(currencies)
       ? currencies.filter(c => c.ticker && c.name)
       : [];
@@ -91,7 +90,6 @@ app.get('/api/currencies', async (req, res) => {
 });
 
 // GET /api/exchange-rate - Get exchange rate estimate
-// Query params: fromCurrency, toCurrency, fromAmount
 app.get('/api/exchange-rate', async (req, res) => {
   try {
     const { fromCurrency, toCurrency, fromAmount } = req.query;
@@ -103,7 +101,6 @@ app.get('/api/exchange-rate', async (req, res) => {
       return res.status(400).json({ error: 'fromAmount must be a positive number' });
     }
 
-    // Correct endpoint: /v1/exchange/estimate?from=X&to=Y&amount=Z
     const estimate = await changeNowRequest(
       `/exchange/estimate?from=${fromCurrency.toLowerCase()}&to=${toCurrency.toLowerCase()}&amount=${fromAmount}`
     );
@@ -112,7 +109,7 @@ app.get('/api/exchange-rate', async (req, res) => {
       fromCurrency: fromCurrency.toUpperCase(),
       toCurrency: toCurrency.toUpperCase(),
       fromAmount: parseFloat(fromAmount),
-      toAmount: estimate.toAmount || estimate.amount || estimate.estimatedAmount,
+      toAmount: estimate.toAmount || estimate.amount,
       rate: estimate.rate || (estimate.toAmount ? parseFloat(estimate.toAmount) / parseFloat(fromAmount) : null),
       transactionSpeed: estimate.transactionSpeed || estimate.speed,
       minAmount: estimate.minAmount,
@@ -136,7 +133,6 @@ app.post('/api/create-transaction', async (req, res) => {
       });
     }
 
-    // Correct endpoint: POST /v1/exchange (NOT /transactions/{apiKey})
     const payload = {
       from: fromCurrency.toLowerCase(),
       to: toCurrency.toLowerCase(),
@@ -153,7 +149,7 @@ app.post('/api/create-transaction', async (req, res) => {
       fromCurrency: transaction.fromCurrency?.toUpperCase() || fromCurrency.toUpperCase(),
       toCurrency: transaction.toCurrency?.toUpperCase() || toCurrency.toUpperCase(),
       fromAmount: transaction.fromAmount || transaction.amount || parseFloat(fromAmount),
-      toAmount: transaction.toAmount || transaction.expectedReceiveAmount || transaction.amount,
+      toAmount: transaction.toAmount || transaction.expectedReceiveAmount,
       payinAddress: transaction.payinAddress || transaction.depositAddress,
       payoutAddress: transaction.payoutAddress || payoutAddress,
       status: transaction.status,
@@ -168,23 +164,21 @@ app.post('/api/create-transaction', async (req, res) => {
 app.get('/api/transaction/:id', async (req, res) => {
   try {
     const { id } = req.params;
-
-    // Correct endpoint: GET /v1/transaction/{id} (NOT /transactions/{id}/{apiKey})
-    const transaction = await changeNowRequest(`/transaction/${id}`);
+    const transaction = await changeNowRequest(`/exchange/${id}`);
 
     res.json({
       id: transaction.id,
       status: transaction.status,
       fromCurrency: transaction.fromCurrency?.toUpperCase(),
       toCurrency: transaction.toCurrency?.toUpperCase(),
-      fromAmount: transaction.fromAmount || transaction.expectedSendAmount || transaction.amount,
+      fromAmount: transaction.fromAmount || transaction.expectedSendAmount,
       toAmount: transaction.toAmount || transaction.expectedReceiveAmount,
       payinAddress: transaction.payinAddress || transaction.depositAddress,
       payoutAddress: transaction.payoutAddress,
-      updatedAt: transaction.updatedAt || transaction.timestamp,
+      updatedAt: transaction.updatedAt,
       createdAt: transaction.createdAt,
-      payinHash: transaction.payinHash || transaction.depositHash,
-      payoutHash: transaction.payoutHash || transaction.payoutHash,
+      payinHash: transaction.payinHash,
+      payoutHash: transaction.payoutHash,
     });
   } catch (error) {
     res.status(error.status || 500).json({ error: error.message });
@@ -206,7 +200,7 @@ const HOST = '0.0.0.0';
 
 app.listen(PORT, HOST, () => {
   console.log(`Backend server running on http://${HOST}:${PORT}`);
-  console.log(`ChangeNOW API: ${API_URL}`);
+  console.log(`ChangeNOW API v2: ${API_URL}`);
 });
 
 module.exports = app;
