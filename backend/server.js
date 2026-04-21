@@ -5,74 +5,70 @@ const helmet = require('helmet');
 const axios = require('axios');
 
 const app = express();
-const PORT = parseInt(process.env.PORT, 10) || 3002;
+
+// RAILWAY ASSIGNMENT: process.env.PORT is set by Railway automatically
+// Do NOT hardcode a port - Railway assigns the public port at runtime
+const PORT = process.env.PORT || 3000;
 const HOST = '0.0.0.0';
+
+console.log('[START] Railway Backend Starting');
+console.log('[CONFIG] PORT from Railway:', process.env.PORT || 'NOT SET (using default)');
+console.log('[CONFIG] Using HOST:', HOST);
+
 const API_KEY = process.env.CHANGE_NOW_API_KEY;
 const API_URL = 'https://api.changenow.io/v2';
 
-console.log('[STARTUP] Changer Backend v2.0');
-console.log('[STARTUP] PORT:', PORT);
-console.log('[STARTUP] NODE_ENV:', process.env.NODE_ENV || 'not set');
-
 if (!API_KEY) {
-  console.error('[FATAL] CHANGE_NOW_API_KEY is not set');
+  console.error('[FATAL] CHANGE_NOW_API_KEY missing');
   process.exit(1);
 }
 
-// Trust proxy (Railway uses proxy)
+// Trust Railway's proxy
 app.set('trust proxy', 1);
 
-// Helmet - relaxed for API
+// Minimal security - API compatibility
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false,
 }));
 
-// CORS - Allow ALL Vercel deployments and localhost
-// Root cause fix: Use proper cors() middleware with array of origins
-const corsOptions = {
+// CORS - Allow Vercel and localhost
+app.use(cors({
   origin: [
     'http://localhost:3000',
     'http://localhost:3001',
     'https://changer-cbha.vercel.app',
-    // Allow ALL *.vercel.app domains (preview deployments)
     /\.vercel\.app$/,
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
-};
+  allowedHeaders: ['Content-Type', 'Authorization', 'Origin'],
+}));
 
-app.use(cors(corsOptions));
+// Body parsing
 app.use(express.json({ limit: '1mb' }));
 
-// Request logging
-app.use((req, res, next) => {
-  console.log(`[REQUEST] ${req.method} ${req.path}`);
-  next();
-});
+// Routes - all publicly accessible
 
-// Root route
 app.get('/', (req, res) => {
   res.json({
+    status: 'ok',
     name: 'Changer API',
     version: '2.0',
-    status: 'running',
-    timestamp: new Date().toISOString(),
+    timestamp: new Date().toISOString()
   });
 });
 
-// Health check
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
+    port: PORT
   });
 });
 
 // ChangeNOW API helper
-async function changeNowRequest(endpoint, method = 'GET', data = null) {
+async function cnApi(endpoint, method = 'POST', data = null) {
   try {
     const config = {
       method,
@@ -83,44 +79,39 @@ async function changeNowRequest(endpoint, method = 'GET', data = null) {
       },
       timeout: 30000,
     };
-
     if (data) config.data = data;
 
     const response = await axios(config);
     return response.data;
   } catch (error) {
     const status = error.response?.status;
-    const errData = error.response?.data;
-    const message = errData?.message || errData?.error || error.message;
-    console.error(`[ChangeNOW ERROR] ${status}: ${message}`);
-    throw { message, status: status || 500 };
+    const msg = error.response?.data?.message || error.message;
+    console.error(`[CN Error] ${status}: ${msg}`);
+    throw { message: msg, status: status || 500 };
   }
 }
 
-// GET /api/currencies
 app.get('/api/currencies', async (req, res) => {
   try {
-    const currencies = await changeNowRequest('/currencies');
-    const filtered = Array.isArray(currencies) ? currencies.filter(c => c.ticker && c.name) : [];
+    const data = await cnApi('/currencies');
+    const filtered = Array.isArray(data) ? data.filter(c => c.ticker) : [];
     res.json(filtered);
-  } catch (error) {
-    res.status(error.status || 500).json({ error: 'Failed to fetch currencies', message: error.message });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to fetch currencies' });
   }
 });
 
-// GET /api/exchange-rate
 app.get('/api/exchange-rate', async (req, res) => {
   try {
     const { fromCurrency, toCurrency, fromAmount } = req.query;
-
     if (!fromCurrency || !toCurrency) {
-      return res.status(400).json({ error: 'fromCurrency and toCurrency are required' });
+      return res.status(400).json({ error: 'fromCurrency and toCurrency required' });
     }
     if (!fromAmount || parseFloat(fromAmount) <= 0) {
-      return res.status(400).json({ error: 'fromAmount must be a positive number' });
+      return res.status(400).json({ error: 'fromAmount must be positive' });
     }
 
-    const estimate = await changeNowRequest(
+    const est = await cnApi(
       `/exchange/estimate?from=${fromCurrency.toLowerCase()}&to=${toCurrency.toLowerCase()}&amount=${fromAmount}`
     );
 
@@ -128,95 +119,82 @@ app.get('/api/exchange-rate', async (req, res) => {
       fromCurrency: fromCurrency.toUpperCase(),
       toCurrency: toCurrency.toUpperCase(),
       fromAmount: parseFloat(fromAmount),
-      toAmount: estimate.toAmount || estimate.amount,
-      rate: estimate.rate || (estimate.toAmount ? parseFloat(estimate.toAmount) / parseFloat(fromAmount) : null),
-      transactionSpeed: estimate.transactionSpeed,
-      minAmount: estimate.minAmount,
-      maxAmount: estimate.maxAmount,
+      toAmount: est.toAmount || est.amount,
+      rate: est.rate,
+      transactionSpeed: est.transactionSpeed,
     });
-  } catch (error) {
-    res.status(error.status || 500).json({ error: 'Failed to fetch exchange rate', message: error.message });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to fetch exchange rate' });
   }
 });
 
-// POST /api/create-transaction
 app.post('/api/create-transaction', async (req, res) => {
   try {
-    const { fromCurrency, toCurrency, fromAmount, address, toAddress, refundAddress } = req.body;
-    const payoutAddress = toAddress || address;
-
-    if (!fromCurrency || !toCurrency || !fromAmount || !payoutAddress) {
-      return res.status(400).json({ error: 'fromCurrency, toCurrency, fromAmount, and address are required' });
+    const { fromCurrency, toCurrency, fromAmount, address, refundAddress } = req.body;
+    if (!fromCurrency || !toCurrency || !fromAmount || !address) {
+      return res.status(400).json({ error: 'Missing required fields' });
     }
 
     const payload = {
       from: fromCurrency.toLowerCase(),
       to: toCurrency.toLowerCase(),
-      address: payoutAddress,
+      address,
       amount: parseFloat(fromAmount),
     };
     if (refundAddress) payload.refundAddress = refundAddress;
 
-    const transaction = await changeNowRequest('/exchange', 'POST', payload);
+    const tx = await cnApi('/exchange', 'POST', payload);
 
     res.json({
-      id: transaction.id,
-      fromCurrency: transaction.fromCurrency?.toUpperCase() || fromCurrency.toUpperCase(),
-      toCurrency: transaction.toCurrency?.toUpperCase() || toCurrency.toUpperCase(),
-      fromAmount: transaction.fromAmount || transaction.amount || parseFloat(fromAmount),
-      toAmount: transaction.toAmount || transaction.expectedReceiveAmount,
-      payinAddress: transaction.payinAddress || transaction.depositAddress,
-      payoutAddress: transaction.payoutAddress || payoutAddress,
-      status: transaction.status,
-      createdAt: transaction.createdAt || transaction.timestamp,
+      id: tx.id,
+      fromCurrency: tx.fromCurrency?.toUpperCase() || fromCurrency.toUpperCase(),
+      toCurrency: tx.toCurrency?.toUpperCase() || toCurrency.toUpperCase(),
+      fromAmount: tx.fromAmount || parseFloat(fromAmount),
+      toAmount: tx.toAmount || tx.expectedReceiveAmount,
+      payinAddress: tx.payinAddress,
+      status: tx.status,
     });
-  } catch (error) {
-    res.status(error.status || 500).json({ error: 'Failed to create transaction', message: error.message });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to create transaction' });
   }
 });
 
-// GET /api/transaction/:id
 app.get('/api/transaction/:id', async (req, res) => {
   try {
-    const transaction = await changeNowRequest(`/exchange/${req.params.id}`);
+    const tx = await cnApi(`/exchange/${req.params.id}`);
     res.json({
-      id: transaction.id,
-      status: transaction.status,
-      fromCurrency: transaction.fromCurrency?.toUpperCase(),
-      toCurrency: transaction.toCurrency?.toUpperCase(),
-      fromAmount: transaction.fromAmount || transaction.expectedSendAmount,
-      toAmount: transaction.toAmount || transaction.expectedReceiveAmount,
-      payinAddress: transaction.payinAddress || transaction.depositAddress,
-      payoutAddress: transaction.payoutAddress,
-      updatedAt: transaction.updatedAt,
-      createdAt: transaction.createdAt,
-      payinHash: transaction.payinHash,
-      payoutHash: transaction.payoutHash,
+      id: tx.id,
+      status: tx.status,
+      fromCurrency: tx.fromCurrency?.toUpperCase(),
+      toCurrency: tx.toCurrency?.toUpperCase(),
+      fromAmount: tx.fromAmount,
+      toAmount: tx.toAmount || tx.expectedReceiveAmount,
+      payinAddress: tx.payinAddress,
     });
-  } catch (error) {
-    res.status(error.status || 500).json({ error: 'Failed to fetch transaction', message: error.message });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to fetch transaction' });
   }
 });
 
 // 404 handler
 app.use((req, res) => {
-  res.status(404).json({ error: 'Endpoint not found' });
+  res.status(404).json({ error: 'Not found' });
 });
 
-// Global error handler
+// Error handler
 app.use((err, req, res, next) => {
-  console.error('[ERROR]', err);
   res.status(500).json({ error: 'Internal server error' });
 });
 
-// Start server
-const server = app.listen(PORT, HOST, () => {
-  console.log('[READY] Server running on http://' + HOST + ':' + PORT);
-});
+// START SERVER - Railway requires binding to 0.0.0.0
+console.log('[START] Binding to', HOST + ':' + PORT);
 
-process.on('SIGTERM', () => {
-  console.log('[SHUTDOWN] Closing server...');
-  server.close(() => process.exit(0));
+app.listen(PORT, HOST, () => {
+  console.log('===========================================');
+  console.log('[READY] Server is live at http://' + HOST + ':' + PORT);
+  console.log('[READY] Public URL: Check Railway dashboard');
+  console.log('[READY] Test: /health endpoint');
+  console.log('===========================================');
 });
 
 module.exports = app;
