@@ -5,77 +5,74 @@ const helmet = require('helmet');
 const axios = require('axios');
 
 const app = express();
-const PORT = process.env.PORT || 3002;
+const PORT = parseInt(process.env.PORT, 10) || 3002;
+const HOST = '0.0.0.0';
 const API_KEY = process.env.CHANGE_NOW_API_KEY;
 const API_URL = 'https://api.changenow.io/v2';
 
-// Validate API key at startup
+console.log('[STARTUP] Changer Backend v2.0');
+console.log('[STARTUP] PORT:', PORT);
+console.log('[STARTUP] NODE_ENV:', process.env.NODE_ENV || 'not set');
+
 if (!API_KEY) {
-  console.error('[FATAL] CHANGE_NOW_API_KEY is not set in environment variables');
-  console.error('[FATAL] Please set CHANGE_NOW_API_KEY in your .env file or Railway environment variables');
+  console.error('[FATAL] CHANGE_NOW_API_KEY is not set');
   process.exit(1);
 }
 
-app.use(helmet());
+// Trust proxy (Railway uses proxy)
+app.set('trust proxy', 1);
 
-// CORS configuration - must be before all routes
-// Supports: localhost, production Vercel, and all Vercel preview deployments
+// Helmet - relaxed for API
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+}));
+
+// CORS - Allow ALL Vercel deployments and localhost
+// Root cause fix: Use proper cors() middleware with array of origins
 const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests with no origin (curl, Postman, mobile apps)
-    if (!origin) return callback(null, true);
-
-    // Environment-configured origin (for specific deployments)
-    const envOrigin = process.env.FRONTEND_URL;
-    if (envOrigin && origin === envOrigin) {
-      return callback(null, true);
-    }
-
-    // Local development
-    if (origin === 'http://localhost:3000' || origin === 'http://localhost:3001') {
-      return callback(null, true);
-    }
-
-    // All Vercel deployments (*.vercel.app)
-    if (origin.endsWith('.vercel.app') && origin.includes('vercel')) {
-      console.log(`[CORS] Allowing Vercel origin: ${origin}`);
-      return callback(null, true);
-    }
-
-    // Production Vercel URL (without subdomain)
-    if (origin === 'https://vercel.app' || origin === 'https://changenow.io') {
-      return callback(null, true);
-    }
-
-    console.log(`[CORS] Blocked origin: ${origin}`);
-    callback(new Error('Not allowed by CORS'));
-  },
+  origin: [
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'https://changer-cbha.vercel.app',
+    // Allow ALL *.vercel.app domains (preview deployments)
+    /\.vercel\.app$/,
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
-  exposedHeaders: ['Content-Type', 'Authorization'],
 };
-app.use(cors(corsOptions));
-app.use(express.json());
 
+app.use(cors(corsOptions));
+app.use(express.json({ limit: '1mb' }));
+
+// Request logging
 app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  console.log(`[REQUEST] ${req.method} ${req.path}`);
   next();
 });
 
-// Root test route
+// Root route
 app.get('/', (req, res) => {
-  res.json({ status: 'API is running', timestamp: new Date().toISOString(), version: '2.0' });
+  res.json({
+    name: 'Changer API',
+    version: '2.0',
+    status: 'running',
+    timestamp: new Date().toISOString(),
+  });
 });
 
+// Health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+  });
 });
 
-// ChangeNOW API v2 request helper with robust error handling
+// ChangeNOW API helper
 async function changeNowRequest(endpoint, method = 'GET', data = null) {
-  console.log(`[ChangeNOW Request] ${method} ${API_URL}${endpoint}`);
-
   try {
     const config = {
       method,
@@ -87,66 +84,31 @@ async function changeNowRequest(endpoint, method = 'GET', data = null) {
       timeout: 30000,
     };
 
-    if (data) {
-      config.data = data;
-      console.log(`[ChangeNOW Request] Body:`, JSON.stringify(data, null, 2));
-    }
+    if (data) config.data = data;
 
     const response = await axios(config);
-
-    console.log(`[ChangeNOW Response] Status: ${response.status}`);
-    console.log(`[ChangeNOW Response] Data preview:`, JSON.stringify(response.data).substring(0, 300));
-
     return response.data;
-
   } catch (error) {
-    // Extract error information safely
-    const status = error.response?.status || null;
-    const data = error.response?.data || null;
-    const errorMessage = data?.message || data?.error || error.message || 'Unknown error';
-
-    console.error(`[ChangeNOW Error]`);
-    console.error(`  Status: ${status}`);
-    console.error(`  Message: ${errorMessage}`);
-    if (data) console.error(`  Data:`, JSON.stringify(data));
-
-    // Return a structured error object
-    throw {
-      message: errorMessage,
-      status: status || 500,
-      isNetworkError: !status && !data
-    };
+    const status = error.response?.status;
+    const errData = error.response?.data;
+    const message = errData?.message || errData?.error || error.message;
+    console.error(`[ChangeNOW ERROR] ${status}: ${message}`);
+    throw { message, status: status || 500 };
   }
 }
 
-// GET /api/currencies - Get all available currencies
+// GET /api/currencies
 app.get('/api/currencies', async (req, res) => {
-  console.log('[Route] GET /api/currencies');
-
   try {
-    console.log('[Route] Calling ChangeNOW API...');
     const currencies = await changeNowRequest('/currencies');
-
-    console.log(`[Route] Received ${Array.isArray(currencies) ? currencies.length : 0} currencies`);
-
-    // Always return array, even if empty or error
-    const activeCurrencies = Array.isArray(currencies)
-      ? currencies.filter(c => c.ticker && c.name)
-      : [];
-
-    console.log(`[Route] Returning ${activeCurrencies.length} active currencies`);
-    return res.json(activeCurrencies);
-
+    const filtered = Array.isArray(currencies) ? currencies.filter(c => c.ticker && c.name) : [];
+    res.json(filtered);
   } catch (error) {
-    console.error(`[Route] Error in /api/currencies:`, error.message);
-    return res.status(error.status || 500).json({
-      error: 'Failed to fetch currencies',
-      message: error.message
-    });
+    res.status(error.status || 500).json({ error: 'Failed to fetch currencies', message: error.message });
   }
 });
 
-// GET /api/exchange-rate - Get exchange rate estimate
+// GET /api/exchange-rate
 app.get('/api/exchange-rate', async (req, res) => {
   try {
     const { fromCurrency, toCurrency, fromAmount } = req.query;
@@ -162,35 +124,29 @@ app.get('/api/exchange-rate', async (req, res) => {
       `/exchange/estimate?from=${fromCurrency.toLowerCase()}&to=${toCurrency.toLowerCase()}&amount=${fromAmount}`
     );
 
-    return res.json({
+    res.json({
       fromCurrency: fromCurrency.toUpperCase(),
       toCurrency: toCurrency.toUpperCase(),
       fromAmount: parseFloat(fromAmount),
       toAmount: estimate.toAmount || estimate.amount,
       rate: estimate.rate || (estimate.toAmount ? parseFloat(estimate.toAmount) / parseFloat(fromAmount) : null),
-      transactionSpeed: estimate.transactionSpeed || estimate.speed,
+      transactionSpeed: estimate.transactionSpeed,
       minAmount: estimate.minAmount,
       maxAmount: estimate.maxAmount,
     });
   } catch (error) {
-    return res.status(error.status || 500).json({
-      error: 'Failed to fetch exchange rate',
-      message: error.message
-    });
+    res.status(error.status || 500).json({ error: 'Failed to fetch exchange rate', message: error.message });
   }
 });
 
-// POST /api/create-transaction - Create new exchange transaction
+// POST /api/create-transaction
 app.post('/api/create-transaction', async (req, res) => {
   try {
     const { fromCurrency, toCurrency, fromAmount, address, toAddress, refundAddress } = req.body;
-
     const payoutAddress = toAddress || address;
 
     if (!fromCurrency || !toCurrency || !fromAmount || !payoutAddress) {
-      return res.status(400).json({
-        error: 'fromCurrency, toCurrency, fromAmount, and address are required'
-      });
+      return res.status(400).json({ error: 'fromCurrency, toCurrency, fromAmount, and address are required' });
     }
 
     const payload = {
@@ -199,12 +155,11 @@ app.post('/api/create-transaction', async (req, res) => {
       address: payoutAddress,
       amount: parseFloat(fromAmount),
     };
-
     if (refundAddress) payload.refundAddress = refundAddress;
 
     const transaction = await changeNowRequest('/exchange', 'POST', payload);
 
-    return res.json({
+    res.json({
       id: transaction.id,
       fromCurrency: transaction.fromCurrency?.toUpperCase() || fromCurrency.toUpperCase(),
       toCurrency: transaction.toCurrency?.toUpperCase() || toCurrency.toUpperCase(),
@@ -216,20 +171,15 @@ app.post('/api/create-transaction', async (req, res) => {
       createdAt: transaction.createdAt || transaction.timestamp,
     });
   } catch (error) {
-    return res.status(error.status || 500).json({
-      error: 'Failed to create transaction',
-      message: error.message
-    });
+    res.status(error.status || 500).json({ error: 'Failed to create transaction', message: error.message });
   }
 });
 
-// GET /api/transaction/:id - Get transaction status
+// GET /api/transaction/:id
 app.get('/api/transaction/:id', async (req, res) => {
   try {
-    const { id } = req.params;
-    const transaction = await changeNowRequest(`/exchange/${id}`);
-
-    return res.json({
+    const transaction = await changeNowRequest(`/exchange/${req.params.id}`);
+    res.json({
       id: transaction.id,
       status: transaction.status,
       fromCurrency: transaction.fromCurrency?.toUpperCase(),
@@ -244,31 +194,29 @@ app.get('/api/transaction/:id', async (req, res) => {
       payoutHash: transaction.payoutHash,
     });
   } catch (error) {
-    return res.status(error.status || 500).json({
-      error: 'Failed to fetch transaction',
-      message: error.message
-    });
+    res.status(error.status || 500).json({ error: 'Failed to fetch transaction', message: error.message });
   }
 });
 
-// 404 handler - MUST be after all routes
+// 404 handler
 app.use((req, res) => {
-  console.log(`[404] Route not found: ${req.method} ${req.path}`);
   res.status(404).json({ error: 'Endpoint not found' });
 });
 
-// Global error handler - MUST be last
+// Global error handler
 app.use((err, req, res, next) => {
-  console.error('[Global Error Handler]', err);
+  console.error('[ERROR]', err);
   res.status(500).json({ error: 'Internal server error' });
 });
 
-const HOST = '0.0.0.0';
+// Start server
+const server = app.listen(PORT, HOST, () => {
+  console.log('[READY] Server running on http://' + HOST + ':' + PORT);
+});
 
-app.listen(PORT, HOST, () => {
-  console.log(`Backend server running on http://${HOST}:${PORT}`);
-  console.log(`ChangeNOW API v2: ${API_URL}`);
-  console.log(`API Key: ${API_KEY ? '***' + API_KEY.slice(-4) : 'NOT SET'}`);
+process.on('SIGTERM', () => {
+  console.log('[SHUTDOWN] Closing server...');
+  server.close(() => process.exit(0));
 });
 
 module.exports = app;
