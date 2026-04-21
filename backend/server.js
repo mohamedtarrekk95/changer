@@ -11,7 +11,7 @@ const API_URL = 'https://api.changenow.io/v1';
 
 app.use(helmet());
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: process.env.FRONTEND_URL || '*',
   credentials: true
 }));
 app.use(express.json());
@@ -169,8 +169,10 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
-app.listen(PORT, () => {
-  console.log(`Backend server running on port ${PORT}`);
+const HOST = '0.0.0.0';
+
+app.listen(PORT, HOST, () => {
+  console.log(`Backend server running on http://${HOST}:${PORT}`);
   console.log(`ChangeNOW API: ${API_URL}`);
 });
 
