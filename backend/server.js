@@ -9,6 +9,9 @@ const HOST = '0.0.0.0';
 const API_KEY = process.env.CHANGE_NOW_API_KEY || '';
 const API_URL = 'https://api.changenow.io/v1';
 
+process.on('uncaughtException', e => console.error('[UNCATCHED]', e.message));
+process.on('unhandledRejection', e => console.error('[UNHANDLED]', String(e)));
+
 console.log('[START] PORT:', PORT, 'HOST:', HOST, 'API_KEY_SET:', API_KEY ? 'YES' : 'NO');
 
 // CORS
@@ -60,6 +63,6 @@ const server = app.listen(PORT, HOST, () => {
   console.log('[READY] http://' + HOST + ':' + PORT);
 });
 
-server.on('error', e => console.error('[ERROR]', e.message));
+server.on('error', e => console.error('[SERVER_ERROR]', e.message));
 
 module.exports = app;
