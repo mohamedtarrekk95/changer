@@ -1,5 +1,9 @@
 [build]
-builder = "docker"
+builder = "nixpacks"
 
 [deploy]
 startCommand = "node server.js"
+
+[Variables]
+PORT = "${PORT}"
+NODE_ENV = "production"
