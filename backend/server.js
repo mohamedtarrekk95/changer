@@ -4,331 +4,62 @@ const express = require('express');
 const axios = require('axios');
 
 const app = express();
-
-// ===========================================
-// RAILWAY PORT - MUST use ONLY process.env.PORT
-// Railway sets this dynamically
-// ===========================================
-const PORT = process.env.PORT;
+const PORT = process.env.PORT || 3000;
 const HOST = '0.0.0.0';
-
-// Railway will provide PORT - validate it
-const PORT_NUM = parseInt(PORT, 10);
-const IS_PORT_VALID = !isNaN(PORT_NUM) && PORT_NUM > 0 && PORT_NUM < 65536;
-
-// Force PORT to be a valid number or default to 3000 for local dev
-const LISTEN_PORT = IS_PORT_VALID ? PORT_NUM : 3000;
-
-// ===========================================
-// CHANGE NOW API CONFIG
-// ===========================================
 const API_KEY = process.env.CHANGE_NOW_API_KEY || '';
 const API_URL = 'https://api.changenow.io/v1';
 
-// ===========================================
-// STARTUP LOG
-// ===========================================
-console.log('===========================================');
-console.log('[CONFIG] ChangeNOW Backend v2.0');
-console.log('[CONFIG] Time:', new Date().toISOString());
-console.log('[CONFIG] PORT:', PORT);
-console.log('[CONFIG] PORT_VALID:', IS_PORT_VALID);
-console.log('[CONFIG] HOST:', HOST);
-console.log('[CONFIG] API_URL:', API_URL);
-console.log('[CONFIG] API_KEY_SET:', API_KEY ? 'YES' : 'NO');
-console.log('===========================================');
+console.log('[START] PORT:', PORT, 'HOST:', HOST, 'API_KEY_SET:', API_KEY ? 'YES' : 'NO');
 
-// ===========================================
-// GLOBAL ERROR HANDLERS
-// Keep server alive no matter what
-// ===========================================
-process.on('uncaughtException', (err) => {
-  console.error('[UNCAUGHT EXCEPTION]', err.message, err.stack);
-  // NEVER exit - keep server running
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('[UNHANDLED REJECTION]', String(reason));
-  // NEVER exit
-});
-
-// ===========================================
-// CORS MIDDLEWARE - MUST be first
-// Sets headers on EVERY response
-// ===========================================
+// CORS
 app.use((req, res, next) => {
-  const origin = req.headers.origin;
-
-  // Set CORS headers on EVERY response
-  res.setHeader('Access-Control-Allow-Origin', origin || '*');
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Origin, Accept, X-Requested-With');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Max-Age', '86400');
-
-  // Handle preflight immediately - don't go to routes
-  if (req.method === 'OPTIONS') {
-    console.log('[CORS] Preflight from:', origin);
-    return res.status(204).end();
-  }
-
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Origin, Accept');
+  if (req.method === 'OPTIONS') return res.status(204).end();
   next();
 });
 
-// ===========================================
-// BODY PARSING
-// ===========================================
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json());
 
-// ===========================================
-// REQUEST LOGGING
-// ===========================================
-app.use((req, res, next) => {
-  console.log(`[REQUEST] ${new Date().toISOString()} ${req.method} ${req.path}`);
-  next();
-});
+app.get('/', (req, res) => res.json({ status: 'ok' }));
+app.get('/health', (req, res) => res.json({ status: 'ok', port: PORT }));
 
-// ===========================================
-// SAFE CHANGE NOW API CALL
-// Never throws - always resolves with {ok, data, error}
-// ===========================================
 function safeCnCall(method, path, body) {
   return new Promise((resolve) => {
-    // No API key = return error
-    if (!API_KEY) {
-      console.log('[CnCall] No API key configured');
-      resolve({ ok: false, error: 'API key not configured', data: null });
-      return;
-    }
-
-    // Timeout after 15 seconds
-    const timer = setTimeout(() => {
-      console.error('[CnCall] Timeout for', method, path);
-      resolve({ ok: false, error: 'timeout', data: null });
-    }, 15000);
-
-    axios({
-      method: method || 'GET',
-      url: API_URL + path,
-      headers: { 'x-api-key': API_KEY, 'Content-Type': 'application/json' },
-      data: body,
-      timeout: 15000,
-    })
-    .then(response => {
-      clearTimeout(timer);
-      console.log('[CnCall] Success:', method, path, 'status:', response.status);
-      resolve({ ok: true, data: response.data, error: null });
-    })
-    .catch(err => {
-      clearTimeout(timer);
-      const status = err.response?.status;
-      const message = err.response?.data?.message || err.message || 'unknown';
-      console.error('[CnCall] Error:', method, path, 'status:', status, 'msg:', message);
-      resolve({ ok: false, error: message, status, data: null });
-    });
+    if (!API_KEY) return resolve({ ok: false, error: 'no api key' });
+    const timer = setTimeout(() => resolve({ ok: false, error: 'timeout' }), 15000);
+    axios({ method, url: API_URL + path, headers: { 'x-api-key': API_KEY }, data: body, timeout: 15000 })
+      .then(r => { clearTimeout(timer); resolve({ ok: true, data: r.data }); })
+      .catch(e => { clearTimeout(timer); resolve({ ok: false, error: e.message }); });
   });
 }
 
-// ===========================================
-// ROUTES
-// ===========================================
-
-// ROOT - Always returns 200
-app.get('/', (req, res) => {
-  res.status(200).json({
-    status: 'ok',
-    service: 'Changer API',
-    version: '2.0',
-    timestamp: new Date().toISOString(),
-  });
-});
-
-// HEALTH - Always returns 200, NO external dependencies
-app.get('/health', (req, res) => {
-  res.status(200).json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    port: PORT,
-    portValid: IS_PORT_VALID,
-    portNum: PORT_NUM,
-    uptime: Math.floor(process.uptime()),
-    memoryUsage: process.memoryUsage ? {
-      heapUsed: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + 'MB',
-      heapTotal: Math.round(process.memoryUsage().heapTotal / 1024 / 1024) + 'MB',
-    } : 'unavailable',
-  });
-});
-
-// CURRENCIES - ALWAYS returns array, never fails
 app.get('/api/currencies', async (req, res) => {
-  console.log('[Route] GET /api/currencies');
-
-  try {
-    const result = await safeCnCall('GET', '/currencies');
-
-    // ChangeNOW failed - return empty array, NOT error
-    if (!result.ok && !result.data) {
-      console.log('[Route] ChangeNOW unavailable, returning []');
-      return res.status(200).json([]);
-    }
-
-    // Invalid response - return empty array
-    if (!Array.isArray(result.data)) {
-      console.log('[Route] Invalid response, returning []');
-      return res.status(200).json([]);
-    }
-
-    console.log('[Route] Returning', result.data.length, 'currencies');
-    return res.status(200).json(result.data);
-
-  } catch (err) {
-    // Any unexpected error - return empty array
-    console.error('[Route] Error:', err.message);
-    return res.status(200).json([]);
-  }
+  const r = await safeCnCall('GET', '/currencies');
+  res.json(Array.isArray(r.data) ? r.data : []);
 });
 
-// EXCHANGE RATE
 app.get('/api/exchange-rate', async (req, res) => {
-  console.log('[Route] GET /api/exchange-rate');
-
-  try {
-    const { fromCurrency, toCurrency, fromAmount } = req.query;
-
-    if (!fromCurrency || !toCurrency) {
-      return res.status(400).json({ error: 'fromCurrency and toCurrency required' });
-    }
-    if (!fromAmount || parseFloat(fromAmount) <= 0) {
-      return res.status(400).json({ error: 'fromAmount must be positive' });
-    }
-
-    const result = await safeCnCall(
-      'GET',
-      `/exchange/estimate?from=${fromCurrency.toLowerCase()}&to=${toCurrency.toLowerCase()}&amount=${fromAmount}`
-    );
-
-    if (!result.ok && !result.data) {
-      return res.status(500).json({ error: 'Failed to fetch rate', message: result.error });
-    }
-
-    return res.status(200).json({
-      fromCurrency: fromCurrency.toUpperCase(),
-      toCurrency: toCurrency.toUpperCase(),
-      fromAmount: parseFloat(fromAmount),
-      toAmount: result.data?.toAmount || result.data?.amount,
-      rate: result.data?.rate,
-      transactionSpeed: result.data?.transactionSpeed,
-    });
-
-  } catch (err) {
-    console.error('[Route] /api/exchange-rate error:', err.message);
-    return res.status(500).json({ error: 'rate error' });
-  }
+  const { fromCurrency, toCurrency, fromAmount } = req.query;
+  if (!fromCurrency || !toCurrency) return res.status(400).json({ error: 'missing params' });
+  const r = await safeCnCall('GET', `/exchange/estimate?from=${fromCurrency}&to=${toCurrency}&amount=${fromAmount}`);
+  res.json(r.ok ? r.data : { error: r.error });
 });
 
-// CREATE TRANSACTION
 app.post('/api/create-transaction', async (req, res) => {
-  console.log('[Route] POST /api/create-transaction');
-
-  try {
-    const { fromCurrency, toCurrency, fromAmount, address, refundAddress } = req.body;
-
-    if (!fromCurrency || !toCurrency || !fromAmount || !address) {
-      return res.status(400).json({ error: 'Missing required fields' });
-    }
-
-    const payload = {
-      from: fromCurrency.toLowerCase(),
-      to: toCurrency.toLowerCase(),
-      address,
-      amount: parseFloat(fromAmount),
-    };
-    if (refundAddress) payload.refundAddress = refundAddress;
-
-    const result = await safeCnCall('POST', '/exchange', payload);
-
-    if (!result.ok && !result.data) {
-      return res.status(500).json({ error: 'Failed to create transaction', message: result.error });
-    }
-
-    return res.status(200).json({
-      id: result.data?.id || 'unknown',
-      fromCurrency: (result.data?.fromCurrency || fromCurrency).toUpperCase(),
-      toCurrency: (result.data?.toCurrency || toCurrency).toUpperCase(),
-      fromAmount: result.data?.fromAmount || parseFloat(fromAmount),
-      toAmount: result.data?.toAmount,
-      payinAddress: result.data?.payinAddress,
-      status: result.data?.status || 'unknown',
-    });
-
-  } catch (err) {
-    console.error('[Route] /api/create-transaction error:', err.message);
-    return res.status(500).json({ error: 'transaction error' });
-  }
+  const { fromCurrency, toCurrency, fromAmount, address } = req.body;
+  if (!fromCurrency || !toCurrency || !fromAmount || !address) return res.status(400).json({ error: 'missing fields' });
+  const r = await safeCnCall('POST', '/exchange', { from: fromCurrency, to: toCurrency, address, amount: fromAmount });
+  res.json(r.ok ? r.data : { error: r.error });
 });
 
-// TRANSACTION STATUS
-app.get('/api/transaction/:id', async (req, res) => {
-  console.log('[Route] GET /api/transaction/', req.params.id);
+app.use((req, res) => res.status(404).json({ error: 'not found' }));
 
-  try {
-    const result = await safeCnCall('GET', `/transaction/${req.params.id}`);
-
-    if (!result.ok && !result.data) {
-      return res.status(500).json({ error: 'Failed to fetch transaction', message: result.error });
-    }
-
-    return res.status(200).json({
-      id: result.data?.id || req.params.id,
-      status: result.data?.status || 'unknown',
-      fromCurrency: result.data?.fromCurrency?.toUpperCase(),
-      toCurrency: result.data?.toCurrency?.toUpperCase(),
-      fromAmount: result.data?.fromAmount,
-      toAmount: result.data?.toAmount,
-      payinAddress: result.data?.payinAddress,
-    });
-
-  } catch (err) {
-    console.error('[Route] /api/transaction error:', err.message);
-    return res.status(500).json({ error: 'transaction error' });
-  }
+const server = app.listen(PORT, HOST, () => {
+  console.log('[READY] http://' + HOST + ':' + PORT);
 });
 
-// ===========================================
-// 404 HANDLER - Must set CORS headers too
-// ===========================================
-app.use((req, res) => {
-  console.log('[Route] 404:', req.method, req.path);
-  res.status(404).json({ error: 'not found' });
-});
-
-// ===========================================
-// ERROR HANDLER - Must set CORS headers too
-// ===========================================
-app.use((err, req, res, next) => {
-  console.error('[ERROR HANDLER]', err.message);
-  res.status(500).json({ error: 'internal error' });
-});
-
-// ===========================================
-// START SERVER
-// ===========================================
-console.log('[START] Starting server on port', LISTEN_PORT, '...');
-
-const server = app.listen(LISTEN_PORT, HOST, (err) => {
-  if (err) {
-    console.error('[START] FATAL: Server failed to start:', err.message);
-    return;
-  }
-  console.log('===========================================');
-  console.log('[READY] Server running at http://' + HOST + ':' + LISTEN_PORT);
-  console.log('[READY] Health: http://' + HOST + ':' + LISTEN_PORT + '/health');
-  console.log('[READY] API_KEY_SET:', API_KEY ? 'YES' : 'NO');
-  console.log('===========================================');
-});
-
-server.on('error', (err) => {
-  console.error('[SERVER] Error:', err.message);
-});
+server.on('error', e => console.error('[ERROR]', e.message));
 
 module.exports = app;
